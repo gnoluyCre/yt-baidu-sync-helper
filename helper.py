@@ -1,60 +1,94 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-Native Messaging Host 骨架
-读一行 JSON → 回一行 JSON
-"""
 import sys
 import json
 import argparse
+import tempfile
+import os
+import yt_dlp
+from typing import Callable
 
-LOG_F = sys.stderr   # 调试日志输出到 stderr，不会污染 stdout
+HEARTBEAT_SEC = 5
 
-def log(msg):
-    print(msg, file=LOG_F, flush=True)
+def log(message: str):
+    """简单的日志函数"""
+    with open('/tmp/native_host.log', 'a') as f:
+        f.write(f"{message}\n")
 
-def read_stdin_line():
-    """Native Messaging 协议：先读 4 字节长度，再读 body"""
-    raw_len = sys.stdin.buffer.read(4)
-    if not raw_len:
-        return None
-    msg_len = int.from_bytes(raw_len, byteorder='little')
-    msg = sys.stdin.buffer.read(msg_len).decode('utf-8')
-    return json.loads(msg)
-
-def write_stdout_line(obj):
-    """先写 4 字节长度，再写 body"""
+def send_json(obj):
     body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
-    sys.stdout.buffer.write(len(body).to_bytes(4, byteorder='little'))
+    sys.stdout.buffer.write(len(body).to_bytes(4, 'little'))
     sys.stdout.buffer.write(body)
     sys.stdout.buffer.flush()
 
+def read_json():
+    raw_len = sys.stdin.buffer.read(4)
+    if not raw_len:
+        return None
+    msg_len = int.from_bytes(raw_len, 'little')
+    return json.loads(sys.stdin.buffer.read(msg_len).decode('utf-8'))
+
 def handle_ping():
-    return {'status': 'pong', 'msg': 'helper alive'}
+    return {'status': 'pong'}
 
 def loop_once():
     try:
-        req = read_stdin_line()
+        req = read_json()
         if req is None:
             return
-        log(f'recv: {req}')
         if req.get('cmd') == 'ping':
-            resp = handle_ping()
-        else:
-            resp = {'status': 'unknown_cmd'}
-        log(f'send: {resp}')
-        write_stdout_line(resp)
+            send_json(handle_ping())
+        elif req.get('cmd') == 'enqueue':
+            handle_enqueue(req['videoId'], req.get('title', ''))
     except Exception as e:
-        log(f'error: {e}')
-        write_stdout_line({'status': 'error', 'message': str(e)})
+        log(f'Error in loop_once: {e}')
+        send_json({'status': 'error', 'message': str(e)})
+
+def download(video_id: str, on_progress: Callable[[int], None]) -> str:
+    tmp_dir = tempfile.gettempdir()
+    out_tmpl = os.path.join(tmp_dir, f'%(title)s [{video_id}].%(ext)s')
+
+    def progress_hook(d):
+        if d['status'] == 'downloading':
+            # 更精确的进度计算
+            if d.get('total_bytes'):
+                pct = d.get('downloaded_bytes', 0) / d['total_bytes'] * 100
+            elif d.get('total_bytes_estimate'):
+                pct = d.get('downloaded_bytes', 0) / d['total_bytes_estimate'] * 100
+            else:
+                pct = d.get('percent', 0)  # 使用yt-dlp自己的百分比
+            on_progress(int(pct))
+
+    ydl_opts = {
+        'outtmpl': out_tmpl,
+        'format': 'best[ext=mp4]/best',
+        'progress_hooks': [progress_hook],
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    url = f'https://www.youtube.com/watch?v={video_id}'
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
+
+def handle_enqueue(video_id: str, title: str):
+    def on_progress(pct: int):
+        send_json({'percent': pct})
+
+    try:
+        local_path = download(video_id, on_progress)
+        send_json({'status': 'completed', 'localPath': local_path})
+    except Exception as e:
+        log(f'Download error: {e}')
+        send_json({'status': 'error', 'message': str(e)})
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--once', action='store_true', help='单条模式（命令行测试）')
+    parser.add_argument('--once', action='store_true', help='单条模式（行测试）')
     args = parser.parse_args()
 
     if args.once:
-        # 单条模式：直接读 stdin 一行 JSON（无 4 字节头）
         raw = sys.stdin.readline().strip()
         if raw:
             try:
@@ -62,6 +96,11 @@ def main():
                 log(f'recv: {req}')
                 if req.get('cmd') == 'ping':
                     resp = handle_ping()
+                elif req.get('cmd') == 'enqueue':
+                    # 单条模式简化处理
+                    def on_progress(pct): print(f"Progress: {pct}%")
+                    local_path = download(req['videoId'], on_progress)
+                    resp = {'status': 'completed', 'localPath': local_path}
                 else:
                     resp = {'status': 'unknown_cmd'}
                 log(f'send: {resp}')
@@ -70,7 +109,6 @@ def main():
                 log(f'error: {e}')
                 print(json.dumps({'status': 'error', 'message': str(e)}))
     else:
-        # 正式 Native Messaging 循环
         while True:
             loop_once()
 
