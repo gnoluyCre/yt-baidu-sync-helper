@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import sys
 import json
 import argparse
@@ -31,6 +29,33 @@ def read_json():
 def handle_ping():
     return {'status': 'pong'}
 
+
+import os
+import json
+from core.baidupan import handle_upload
+
+
+# 百度网盘配置（可以从环境变量或配置文件中读取）
+BAIDU_ACCESS_TOKEN = os.getenv('BAIDU_ACCESS_TOKEN', '121.27a0fc94de7788692e21f2132e18c48f.YGb5RHek4rGuPuCoMhL8nsZgBWZIUNtjaIbPXBY.0oT7xQ')
+
+
+def handle_upload_command(video_id: str, local_path: str):
+    """处理上传命令"""
+    print(f"开始上传视频 {video_id}: {local_path}")
+
+    # 检查文件是否存在
+    if not os.path.exists(local_path):
+        send_json({
+            'status': 'error',
+            'message': f'文件不存在: {local_path}',
+            'videoId': video_id
+        })
+        return
+
+    # 执行上传
+    result = handle_upload(video_id, local_path, BAIDU_ACCESS_TOKEN)
+    send_json(result)
+
 def loop_once():
     try:
         req = read_json()
@@ -44,20 +69,23 @@ def loop_once():
         log(f'Error in loop_once: {e}')
         send_json({'status': 'error', 'message': str(e)})
 
+
 def download(video_id: str, on_progress: Callable[[int], None]) -> str:
-    tmp_dir = tempfile.gettempdir()
+    # 获取项目根目录下的tmp文件夹
+    project_root = os.path.dirname(os.path.abspath(__file__))  # 项目根目录
+    tmp_dir = os.path.join(project_root, 'tmp')
+
+    # 如果tmp目录不存在，则创建它
+    os.makedirs(tmp_dir, exist_ok=True)
+
     out_tmpl = os.path.join(tmp_dir, f'%(title)s [{video_id}].%(ext)s')
 
     def progress_hook(d):
         if d['status'] == 'downloading':
-            # 更精确的进度计算
-            if d.get('total_bytes'):
-                pct = d.get('downloaded_bytes', 0) / d['total_bytes'] * 100
-            elif d.get('total_bytes_estimate'):
-                pct = d.get('downloaded_bytes', 0) / d['total_bytes_estimate'] * 100
-            else:
-                pct = d.get('percent', 0)  # 使用yt-dlp自己的百分比
+            pct = d.get('downloaded_bytes', 0) / (d.get('total_bytes') or 1) * 100
             on_progress(int(pct))
+        elif d['status'] == 'finished':
+            on_progress(100)
 
     ydl_opts = {
         'outtmpl': out_tmpl,
@@ -90,6 +118,7 @@ def main():
 
     if args.once:
         raw = sys.stdin.readline().strip()
+        # raw = sys.stdin.buffer.read().decode("gbk").strip()
         if raw:
             try:
                 req = json.loads(raw)
@@ -101,6 +130,12 @@ def main():
                     def on_progress(pct): print(f"Progress: {pct}%")
                     local_path = download(req['videoId'], on_progress)
                     resp = {'status': 'completed', 'localPath': local_path}
+                elif req.get('cmd') == 'upload':
+                    print("指令识别为：upload")
+                    localPath = req['localPath']
+                    access_token = BAIDU_ACCESS_TOKEN
+                    videoId =req['videoId']
+                    resp = handle_upload(videoId, localPath, access_token)
                 else:
                     resp = {'status': 'unknown_cmd'}
                 log(f'send: {resp}')
