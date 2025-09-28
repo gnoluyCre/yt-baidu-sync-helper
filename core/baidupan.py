@@ -3,7 +3,7 @@ import json
 import hashlib
 import requests
 import time
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
 from tqdm import tqdm
 import logging
 
@@ -48,6 +48,16 @@ class BaiduPanUploader:
             'slice_md5': slice_md5,
             'content_md5_slice': content_md5_slice
         }
+    def _get_file_block_list(self, file_path: str) -> List:
+        block_list = []
+        # 计算分片MD5列表
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(self.chunk_size)
+                if not chunk:
+                    break
+                block_list.append(hashlib.md5(chunk).hexdigest())
+        return block_list
 
     def rapid_upload(self, file_path: str, remote_path: str) -> Optional[Dict]:
         """秒传文件"""
@@ -86,19 +96,10 @@ class BaiduPanUploader:
             logger.error(f"秒传请求异常: {e}")
             return None
 
-    def precreate_upload(self, file_path: str, remote_path: str) -> dict[str, Any] | None:
+    def precreate_upload(self, file_path: str, remote_path: str, block_list: list) -> dict[str, Any] | None:
         """预创建上传（分片上传）"""
         try:
             file_info = self._get_file_info(file_path)
-            block_list = []
-            # 计算分片MD5列表
-            with open(file_path, 'rb') as f:
-                while True:
-                    chunk = f.read(self.chunk_size)
-                    if not chunk:
-                        break
-                    block_list.append(hashlib.md5(chunk).hexdigest())
-
             url = f"{self.base_url}/xpan/file"
             params = {
                 'method': 'precreate',
@@ -224,6 +225,8 @@ class BaiduPanUploader:
 
         # 生成远程文件名（清理文件名中的特殊字符）
         filename = os.path.basename(file_path)
+        # 生成block_list
+        block_list = self._get_file_block_list(file_path)
         # 替换可能引起问题的字符
         safe_filename = filename.replace('?', '_').replace('*', '_').replace('"', '_')
         remote_path = f"{remote_dir}/{safe_filename}"
@@ -240,7 +243,7 @@ class BaiduPanUploader:
 
         # 2. 分片上传
         # 预创建
-        precreate_result = self.precreate_upload(file_path, remote_path)
+        precreate_result = self.precreate_upload(file_path, remote_path, block_list)
         if not precreate_result:
             return None
 
@@ -250,7 +253,7 @@ class BaiduPanUploader:
             return None
 
         # 获取block_list（需要在precreate和create中使用相同的）
-        block_list = precreate_result.get('block_list', [])
+        # block_list = precreate_result.get('block_list', [])
 
         # 上传分片
         if not self.upload_slices(file_path, uploadid, remote_path):

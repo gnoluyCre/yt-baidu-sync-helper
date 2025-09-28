@@ -84,13 +84,18 @@ def download(video_id: str, on_progress: Callable[[int], None]) -> str:
             on_progress(int(pct))
         elif d['status'] == 'finished':
             on_progress(100)
-
+    cookiesFile = os.path.join(project_root, 'cookies.txt')
+    print(f"cookies: {cookiesFile}")
     ydl_opts = {
         'outtmpl': out_tmpl,
         'format': 'bestvideo+bestaudio/best',
         'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
+        # 'quiet': True,
+        # 'no_warnings': True,
+        # 'proxy': 'http://127.0.0.1:7890',  # Replace with your proxy
+        'verbose': True,  # 启用详细输出
+        'cookiefile': cookiesFile,  # 替换为 cookies.txt 的实际路径
+        # 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
     }
 
     url = f'https://www.youtube.com/watch?v={video_id}'
