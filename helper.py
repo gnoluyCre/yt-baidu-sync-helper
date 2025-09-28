@@ -1,10 +1,8 @@
-import sys
-import json
 import argparse
-import tempfile
-import os
-import yt_dlp
+import sys
 from typing import Callable
+
+import yt_dlp
 
 HEARTBEAT_SEC = 5
 
@@ -89,7 +87,7 @@ def download(video_id: str, on_progress: Callable[[int], None]) -> str:
 
     ydl_opts = {
         'outtmpl': out_tmpl,
-        'format': 'best[ext=mp4]/best',
+        'format': 'bestvideo+bestaudio/best',
         'progress_hooks': [progress_hook],
         'quiet': True,
         'no_warnings': True,
@@ -118,7 +116,7 @@ def main():
 
     if args.once:
         raw = sys.stdin.readline().strip()
-        # raw = sys.stdin.buffer.read().decode("gbk").strip()
+        # raw = '{"cmd":"upload","videoId":"1k5hLBdQU5E","localPath":"C:/Users/IGR/Desktop/yt-baidu-sync/yt-baidu-sync-helper/tmp/BTC仍下跌！一路向下不回頭？反彈是否有可能？ [1k5hLBdQU5E].mp4"}'
         if raw:
             try:
                 req = json.loads(raw)

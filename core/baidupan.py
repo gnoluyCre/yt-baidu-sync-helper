@@ -91,7 +91,6 @@ class BaiduPanUploader:
         try:
             file_info = self._get_file_info(file_path)
             block_list = []
-
             # 计算分片MD5列表
             with open(file_path, 'rb') as f:
                 while True:
@@ -115,6 +114,7 @@ class BaiduPanUploader:
                 'rtype': 1  # 重命名策略：重命名
             }
 
+            print(remote_path)
             logger.info(f"预创建请求: {data}")
 
             response = self.session.post(url, params=params, data=data, timeout=30)
@@ -184,7 +184,6 @@ class BaiduPanUploader:
     def create_file(self, size: int, remote_path: str, uploadid: str, block_list: list) -> Optional[Dict]:
         """创建文件（完成上传）"""
         try:
-            block_list = ['a3681847bbd51f4a641df12f1f671b18', 'e97751d0d34b00937344e8fc31ac73f8', 'c58f788277a72b7e1b0d67934caf55e7']
             url = f"{self.base_url}/xpan/file"
             params = {
                 'method': 'create',
@@ -217,6 +216,8 @@ class BaiduPanUploader:
 
     def upload_file(self, file_path: str, remote_dir: str = "/apps/yt-download") -> Optional[Dict]:
         """主上传方法：先尝试秒传，失败则分片上传"""
+        # 已下载文件所处的路径
+        # print(f"已下载文件所处的路径:{file_path}")
         if not os.path.exists(file_path):
             logger.error(f"文件不存在: {file_path}")
             return None
@@ -226,6 +227,7 @@ class BaiduPanUploader:
         # 替换可能引起问题的字符
         safe_filename = filename.replace('?', '_').replace('*', '_').replace('"', '_')
         remote_path = f"{remote_dir}/{safe_filename}"
+        remote_path = "/apps/yt-download/于朦胧母亲的声明系伪造｜教美国教友躲避ICE抓人的择吉时法｜周末玄学大课堂：鬼遮眼实例与科学解读｜出门给儿童叫魂的定向秘法｜或疯或死出马仙的可怜下场｜ [Esk-pbgFaBI].webm"
 
         logger.info(f"开始上传: {filename} -> {remote_path}")
 
@@ -300,3 +302,4 @@ def handle_upload(video_id: str, local_path: str, access_token: str) -> Dict:
             'message': f'上传异常: {str(e)}',
             'videoId': video_id
         }
+
